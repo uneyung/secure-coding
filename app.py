@@ -200,6 +200,19 @@ def profile():
     current_user = cursor.fetchone()
     return render_template('profile.html', user=current_user)
 
+# 프로필 페이지: 계정 삭제
+@app.route('/profile/delete', methods=['POST'])
+def delete_account():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM user WHERE id = ?", (session['user_id'],))
+    db.commit()
+    session.pop('user_id', None)
+    flash('계정이 삭제되었습니다.')
+    return redirect(url_for('index'))
+
 # 상품 등록
 @app.route('/product/new', methods=['GET', 'POST'])
 def new_product():
