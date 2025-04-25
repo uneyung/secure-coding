@@ -410,8 +410,13 @@ def view_product(product_id):
         return redirect(url_for('dashboard'))
     # 판매자 정보 조회
     cursor.execute("SELECT * FROM user WHERE id = ?", (product['seller_id'],))
-    seller = cursor.fetchone()
-    return render_template('view_product.html', product=product, seller=seller)
+    seller = cursor.fetchone() 
+    # 상품 사진 경로 설정
+    picture_path = None
+    if product['picture_saved']:
+        picture_path = product['picture_saved']  # 실제 경로에 맞게 수정
+    
+    return render_template('view_product.html', product=product, seller=seller, picture_path=picture_path)
 
 # 신고하기
 @app.route('/report', methods=['GET', 'POST'])
