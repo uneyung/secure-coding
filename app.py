@@ -444,6 +444,29 @@ def handle_send_message_event(data):
     data['message_id'] = str(uuid.uuid4())
     send(data, broadcast=True)
 
+# 세션 관리
+# 애플리케이션 설정 (한번만)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=2)
+
+@app.before_request
+def manage_session_timeout():
+    session.permanent = True
+
+    now = datetime.utcnow()
+    last_activity = session.get('last_activity')
+
+    if last_activity:
+        elapsed = now - datetime.fromisoformat(last_activity)
+        if elapsed > app.config['PERMANENT_SESSION_LIFETIME']:
+            # 30분 이상 활동이 없었으면 세션 초기화하고 로그인 요구
+            session.clear()
+            flash('세션이 만료되었습니다. 다시 로그인해 주세요.')
+            return redirect(url_for('login'))
+
+    # 매 요청마다 마지막 활동 시각을 업데이트
+    session['last_activity'] = now.isoformat()
+
+
 if __name__ == '__main__':
     with app.app_context():
         init_db()  # 앱 컨텍스트 내에서 테이블 생성
