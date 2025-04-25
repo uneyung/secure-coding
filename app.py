@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
 from werkzeug.utils import secure_filename
+import shutil
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -48,7 +49,6 @@ def init_db():
                 price REAL NOT NULL,
                 seller_id TEXT NOT NULL,
                 status TEXT NOT NULL,
-                picture_original TEXT,
                 picture_saved TEXT
             )
         """)
@@ -237,9 +237,9 @@ def profile():
 
 # 파일 확장자 검증 함수
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif'}
-UPLOAD_FOLDER = 'products'  # 루트 디렉토리의 'products' 폴더
-
+UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'products')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -254,49 +254,153 @@ def new_product():
         title       = request.form['title']
         description = request.form['description']
         price       = request.form['price']
+        product_id  = uuid.uuid4().hex
 
         # 상품 사진 저장
         file = request.files.get('picture')
-        picture_path = None
 
         if file and allowed_file(file.filename):
-            original_name = secure_filename(file.filename)
-            # 같은 원래 파일명이 이미 DB에 존재하는지 확인
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("""
-                SELECT picture_saved FROM product
-                WHERE picture_original = ?
-                LIMIT 1
-            """, (original_name,))
-            existing = cursor.fetchone()
-
-            if existing:
-                # 이미 저장된 이미지라면 해당 경로 재사용
-                saved_name = existing['picture_saved']
-            else:
-                # 새 파일 저장
-                unique_id = uuid.uuid4().hex
-                saved_name = f"{unique_id}_{original_name}"
-                save_path = os.path.join(app.config['UPLOAD_FOLDER'], saved_name)
-                file.save(save_path)
-
+              
+            # 디렉토리가 없으면 생성
+            product_folder = os.path.join(app.config['UPLOAD_FOLDER'], product_id)
+            if not os.path.exists(product_folder):
+                os.makedirs(product_folder)
+            
+            # 파일 경로를 upload 폴더 하위 부분만 저장
+            saved_path = os.path.join(app.config['UPLOAD_FOLDER'], product_id, secure_filename(file.filename))
+            saved_name = os.path.join(product_id, secure_filename(file.filename))
+            
+            try:
+                file.save(saved_path)
+            except Exception as e:
+                flash(f'파일 저장 중 오류가 발생했습니다: {str(e)}')
+                return redirect(url_for('my_products'))
+            
         # DB 저장
         db = get_db()
         cursor = db.cursor()
-        product_id = uuid.uuid4().hex
+        
         cursor.execute("""
         INSERT INTO product (id, title, description, price, seller_id, status,
-                             picture_original, picture_saved)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                             picture_saved)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (product_id, title, description, price, session['user_id'], 'available',
-          original_name, saved_name))
+          saved_name))
         db.commit()
 
         flash('상품이 등록되었습니다.')
         return redirect(url_for('dashboard'))
     
     return render_template('new_product.html')
+
+# 내 상품 확인
+@app.route('/my_products')
+def my_products():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM product WHERE seller_id = ?", (session['user_id'],))
+    products = cursor.fetchall()
+    return render_template('my_products.html', products=products)
+
+# 상품 수정
+@app.route('/product/update/<product_id>', methods=['POST'])
+def update_product(product_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    title = request.form['title']
+    description = request.form['description']
+    price = request.form['price']
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # 소유권 확인
+    cursor.execute("SELECT * FROM product WHERE id = ? AND seller_id = ?", (product_id, session['user_id']))
+    product = cursor.fetchone()
+    if not product:
+        flash('해당 상품을 수정할 수 없습니다.')
+        return redirect(url_for('my_products'))
+    
+    file = request.files.get('picture')
+
+    if file and allowed_file(file.filename):
+        # 기존 파일 삭제
+        if product['picture_saved']:
+            old_file_path = os.path.join(app.config['UPLOAD_FOLDER'], product['picture_saved'])
+            if os.path.exists(old_file_path):
+                try:
+                    os.remove(old_file_path)
+                except Exception as e:
+                    flash(f'기존 파일 삭제 중 오류가 발생했습니다: {str(e)}')
+
+        # 새 파일 저장
+        saved_name = secure_filename(file.filename)
+        folder_path = os.path.join(app.config['UPLOAD_FOLDER'], product_id)
+        
+        # 디렉토리가 없으면 생성
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        
+        saved_path = os.path.join(folder_path, saved_name)
+        saved_name = os.path.join(product_id, saved_name)
+
+        try:
+            file.save(saved_path)
+        except Exception as e:
+            flash(f'파일 저장 중 오류가 발생했습니다: {str(e)}')
+            return redirect(url_for('my_products'))
+
+        # DB 업데이트
+        cursor.execute("""
+            UPDATE product
+            SET title = ?, description = ?, price = ?, picture_saved = ?
+            WHERE id = ? AND seller_id = ?
+        """, (title, description, price, saved_name, product_id, session['user_id']))
+    else:
+        cursor.execute("""
+            UPDATE product
+            SET title = ?, description = ?, price = ?
+            WHERE id = ? AND seller_id = ?
+        """, (title, description, price, product_id, session['user_id']))
+
+    db.commit()
+    flash('상품이 수정되었습니다.')
+    return redirect(url_for('my_products'))
+
+
+# 상품 삭제
+@app.route('/product/delete/<product_id>', methods=['POST'])
+def delete_product(product_id):
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # 소유권 확인
+    cursor.execute("SELECT * FROM product WHERE id = ? AND seller_id = ?", (product_id, session['user_id']))
+    product = cursor.fetchone()
+    if not product:
+        flash('해당 상품을 삭제할 수 없습니다.')
+        return redirect(url_for('my_products'))
+
+    # 저장된 이미지 폴더 삭제
+    if product['picture_saved']:
+        folder_path = os.path.join(app.config['UPLOAD_FOLDER'], product_id)
+        if os.path.exists(folder_path):
+            try:
+                shutil.rmtree(folder_path)
+            except Exception as e:
+                flash(f'이미지 폴더 삭제 중 오류가 발생했습니다: {str(e)}')
+
+    cursor.execute("DELETE FROM product WHERE id = ? AND seller_id = ?", (product_id, session['user_id']))
+    db.commit()
+    flash('상품이 삭제되었습니다.')
+    return redirect(url_for('my_products'))
 
 # 상품 상세보기
 @app.route('/product/<product_id>')
@@ -340,5 +444,6 @@ def handle_send_message_event(data):
     send(data, broadcast=True)
 
 if __name__ == '__main__':
-    init_db()  # 앱 컨텍스트 내에서 테이블 생성
+    with app.app_context():
+        init_db()  # 앱 컨텍스트 내에서 테이블 생성
     socketio.run(app, debug=True)

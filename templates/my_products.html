@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}내 상품 보기{% endblock %}
+{% block content %}
+<h2>내가 등록한 상품</h2>
+
+{% if products %}
+  <ul style="list-style: none; padding: 0;">
+    {% for product in products %}
+      <li style="border:1px solid #ccc; padding:10px; margin-bottom:10px; overflow:hidden;">
+
+        <form method="post"
+              action="{{ url_for('update_product', product_id=product.id) }}"
+              enctype="multipart/form-data"
+              style="float:left; width:75%;">
+
+          <!-- 기존 썸네일 -->
+          {% if product.picture_saved %}
+            <img src="{{ url_for('static', filename='products/' + product.picture_saved) }}"
+                 width="120"
+                 style="float:left; margin-right:10px;">
+          {% endif %}
+
+          <!-- 사진 교체 -->
+          <label>사진 변경:</label>
+          <input type="file" name="picture" accept="image/*"><br><br>
+
+          <!-- 제목 수정 -->
+          <label>제목:</label>
+          <input type="text"
+                 name="title"
+                 value="{{ product.title }}"
+                 required
+                 style="width:100%;"><br>
+
+          <!-- 설명 수정 -->
+          <label>설명:</label><br>
+          <textarea name="description"
+                    rows="3"
+                    cols="50"
+                    required
+                    style="width:100%;">{{ product.description }}</textarea><br>
+
+          <!-- 가격 수정 -->
+          <label>가격:</label>
+          <input type="text"
+                 name="price"
+                 value="{{ product.price }}"
+                 required><br><br>
+
+          <button type="submit" class="btn btn-primary">수정하기</button>
+        </form>
+
+        <!-- 삭제 버튼 -->
+        <form method="post"
+              action="{{ url_for('delete_product', product_id=product.id) }}"
+              style="float:right; margin-left:10px;"
+              onsubmit="return confirm('정말 삭제하시겠습니까?');">
+          <!-- CSRF 토큰 호출 제거 -->
+          <button type="submit" class="btn btn-danger">삭제하기</button>
+        </form>
+
+        <div style="clear:both;"></div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p>등록한 상품이 없습니다. <a href="{{ url_for('new_product') }}">새 상품 등록</a> 해보세요.</p>
+{% endif %}
+
+<p><a href="{{ url_for('dashboard') }}">← 대시보드로 돌아가기</a></p>
+{% endblock %}
