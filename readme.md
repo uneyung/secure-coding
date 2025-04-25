@@ -1,32 +1,29 @@
 # Secure Coding
 
-Tiny Shopping Mall Website.
+## Tiny Secondhand Shopping Platform.
 
 You should add some functions and complete the security requirements.
 
 ## requirements
 
-if you don't have a miniconda(or anaconda), you can install it on this url.
-https://docs.anaconda.com/free/miniconda/index.html
+if you don't have a miniconda(or anaconda), you can install it on this url. - https://docs.anaconda.com/free/miniconda/index.html
 
 ```
-conda create -n secure_coding python=3.9
-conda activate secure_coding
-pip install streamlit
-pip install fastapi uvicorn
+git clone https://https://github.com/uneyung/secure-coding
+conda env create -f enviroments.yaml
 ```
 
 ## usage
 
-run the front and backend processes.
+run the server process.
 
 ```
-streamlit run streamlit_app.py
-uvicorn fastapi_app:app --reload
+python app.py
 ```
 
 if you want to test on external machine, you can utilize the ngrok to forwarding the url.
 ```
 # optional
-ngrok http 8501
+sudo snap install ngrok
+ngrok http 5000
 ```
