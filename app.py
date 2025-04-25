@@ -183,35 +183,52 @@ def dashboard():
     all_products = cursor.fetchall()
     return render_template('dashboard.html', products=all_products, user=current_user)
 
-# 프로필 페이지: bio 업데이트 가능
+# 프로필 업데이트
 @app.route('/profile', methods=['GET', 'POST'])
 def profile():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
     db = get_db()
     cursor = db.cursor()
+
     if request.method == 'POST':
-        bio = request.form.get('bio', '')
-        cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
-        db.commit()
-        flash('프로필이 업데이트되었습니다.')
+        action = request.form.get('action_type')
+
+        # 소개글 업데이트
+        if action == 'update_bio':
+            bio = request.form.get('bio', '')
+            cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
+            db.commit()
+            flash('프로필이 업데이트되었습니다.')
+
+        # 비밀번호 변경
+        elif action == 'change_password':
+            current_password = request.form.get('current_password')
+            new_password = request.form.get('new_password')
+            cursor.execute("SELECT password FROM user WHERE id = ?", (session['user_id'],))
+            user = cursor.fetchone()
+            if not user or user['password'] != current_password:
+                flash('현재 비밀번호가 올바르지 않습니다.')
+            else:
+                cursor.execute("UPDATE user SET password = ? WHERE id = ?", (new_password, session['user_id']))
+                db.commit()
+                flash('비밀번호가 변경되었습니다.')
+
+        # 계정 삭제
+        elif action == 'delete_account':
+            cursor.execute("DELETE FROM user WHERE id = ?", (session['user_id'],))
+            db.commit()
+            session.pop('user_id', None)
+            flash('계정이 삭제되었습니다.')
+            return redirect(url_for('index'))
+
         return redirect(url_for('profile'))
+    
+    # GET 요청 시 사용자 정보 불러오기
     cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
     current_user = cursor.fetchone()
     return render_template('profile.html', user=current_user)
-
-# 프로필 페이지: 계정 삭제
-@app.route('/profile/delete', methods=['POST'])
-def delete_account():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("DELETE FROM user WHERE id = ?", (session['user_id'],))
-    db.commit()
-    session.pop('user_id', None)
-    flash('계정이 삭제되었습니다.')
-    return redirect(url_for('index'))
 
 # 상품 등록
 @app.route('/product/new', methods=['GET', 'POST'])
