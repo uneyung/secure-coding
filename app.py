@@ -1,5 +1,6 @@
 import sqlite3
 import uuid
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
 
@@ -55,6 +56,14 @@ def init_db():
                 reason TEXT NOT NULL
             )
         """)
+        # 로그인 제한 테이블 생성
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                ip TEXT PRIMARY KEY,
+                fail_count INTEGER DEFAULT 0,
+                last_fail_time TEXT
+            )
+        """)
         db.commit()
 
 # 기본 라우트
@@ -86,22 +95,70 @@ def register():
     return render_template('register.html')
 
 # 로그인
+def get_client_ip():
+    if request.environ.get('HTTP_X_FORWARDED_FOR'):
+        return request.environ['HTTP_X_FORWARDED_FOR'].split(',')[0]
+    return request.remote_addr
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        ip = get_client_ip()
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT * FROM user WHERE username = ? AND password = ?", (username, password))
+
+
+        # IP 로그인 시도 횟수 체크
+        cursor.execute("SELECT fail_count, last_fail_time FROM login_attempts WHERE ip = ?", (ip,))
+        record = cursor.fetchone()
+
+        if record:
+            fail_count = record['fail_count']
+            last_fail_time = record['last_fail_time']
+
+            # 2. 5회 초과 && 5분 이내면 차단
+            if fail_count >= 5 and last_fail_time:
+                last_dt = datetime.strptime(last_fail_time, '%Y-%m-%d %H:%M:%S')
+                if datetime.now() - last_dt < timedelta(minutes=5):
+                    flash(f'로그인이 제한되었습니다. 5분 후 다시 시도해주세요.')
+                    return redirect(url_for('login'))
+                else:
+                    # 제한 시간 지난 경우 초기화
+                    cursor.execute("DELETE FROM login_attempts WHERE ip = ?", (ip,))
+                    db.commit()
+
+        # 3. 사용자 확인
+        cursor.execute("SELECT id, password FROM user WHERE username = ?", (username,))
         user = cursor.fetchone()
-        if user:
+
+        if user and user['password'] == password:
+            # 로그인 성공 → IP 실패 기록 삭제
             session['user_id'] = user['id']
+            cursor.execute("DELETE FROM login_attempts WHERE ip = ?", (ip,))
+            db.commit()
             flash('로그인 성공!')
             return redirect(url_for('dashboard'))
         else:
+            # 로그인 실패
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            if record:
+                cursor.execute("""
+                    UPDATE login_attempts 
+                    SET fail_count = fail_count + 1, last_fail_time = ?
+                    WHERE ip = ?
+                """, (now, ip))
+            else:
+                cursor.execute("""
+                    INSERT INTO login_attempts (ip, fail_count, last_fail_time)
+                    VALUES (?, 1, ?)
+                """, (ip, now))
+            db.commit()
             flash('아이디 또는 비밀번호가 올바르지 않습니다.')
             return redirect(url_for('login'))
+        
     return render_template('login.html')
 
 # 로그아웃
