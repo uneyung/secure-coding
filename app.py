@@ -340,11 +340,7 @@ def update_product(product_id):
         # 새 파일 저장
         saved_name = secure_filename(file.filename)
         folder_path = os.path.join(app.config['UPLOAD_FOLDER'], product_id)
-        
-        # 디렉토리가 없으면 생성
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-        
+
         saved_path = os.path.join(folder_path, saved_name)
         saved_name = os.path.join(product_id, saved_name)
 
@@ -410,7 +406,7 @@ def view_product(product_id):
     cursor.execute("SELECT * FROM product WHERE id = ?", (product_id,))
     product = cursor.fetchone()
     if not product:
-        flash('상품을 찾을 수 없습니다.')
+        flash('상품을 찾을 수 없습니다.세')
         return redirect(url_for('dashboard'))
     # 판매자 정보 조회
     cursor.execute("SELECT * FROM user WHERE id = ?", (product['seller_id'],))
