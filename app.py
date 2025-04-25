@@ -1,8 +1,10 @@
 import sqlite3
 import uuid
+import os
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -43,8 +45,11 @@ def init_db():
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
-                price TEXT NOT NULL,
-                seller_id TEXT NOT NULL
+                price REAL NOT NULL,
+                seller_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                picture_original TEXT,
+                picture_saved TEXT
             )
         """)
         # 신고 테이블 생성
@@ -230,25 +235,67 @@ def profile():
     current_user = cursor.fetchone()
     return render_template('profile.html', user=current_user)
 
+# 파일 확장자 검증 함수
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif'}
+UPLOAD_FOLDER = 'products'  # 루트 디렉토리의 'products' 폴더
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 # 상품 등록
 @app.route('/product/new', methods=['GET', 'POST'])
 def new_product():
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
     if request.method == 'POST':
-        title = request.form['title']
+        title       = request.form['title']
         description = request.form['description']
-        price = request.form['price']
+        price       = request.form['price']
+
+        # 상품 사진 저장
+        file = request.files.get('picture')
+        picture_path = None
+
+        if file and allowed_file(file.filename):
+            original_name = secure_filename(file.filename)
+            # 같은 원래 파일명이 이미 DB에 존재하는지 확인
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                SELECT picture_saved FROM product
+                WHERE picture_original = ?
+                LIMIT 1
+            """, (original_name,))
+            existing = cursor.fetchone()
+
+            if existing:
+                # 이미 저장된 이미지라면 해당 경로 재사용
+                saved_name = existing['picture_saved']
+            else:
+                # 새 파일 저장
+                unique_id = uuid.uuid4().hex
+                saved_name = f"{unique_id}_{original_name}"
+                save_path = os.path.join(app.config['UPLOAD_FOLDER'], saved_name)
+                file.save(save_path)
+
+        # DB 저장
         db = get_db()
         cursor = db.cursor()
-        product_id = str(uuid.uuid4())
-        cursor.execute(
-            "INSERT INTO product (id, title, description, price, seller_id) VALUES (?, ?, ?, ?, ?)",
-            (product_id, title, description, price, session['user_id'])
-        )
+        product_id = uuid.uuid4().hex
+        cursor.execute("""
+        INSERT INTO product (id, title, description, price, seller_id, status,
+                             picture_original, picture_saved)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (product_id, title, description, price, session['user_id'], 'available',
+          original_name, saved_name))
         db.commit()
+
         flash('상품이 등록되었습니다.')
         return redirect(url_for('dashboard'))
+    
     return render_template('new_product.html')
 
 # 상품 상세보기

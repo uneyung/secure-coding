@@ -1,3 +1,7 @@
 *.db
 *.pptx
+*.jpg
+*.png
+*.jpeg
+*.gif
 __pycache__
